@@ -1,0 +1,32 @@
+pretrained_model_name_or_path: "black-forest-labs/FLUX.1-dev"
+
+train_data_dir: "data/material_brick/images"
+resolution: 768
+center_crop: true
+random_flip: true
+
+output_dir: "outputs/flux_tlora_matbrk"
+mixed_precision: "bf16"
+seed: 0
+
+train_batch_size: 1
+gradient_accumulation_steps: 4
+learning_rate: 5.0e-5
+max_train_steps: 300
+checkpointing_steps: 100
+
+lora_rank: 16
+lora_alpha: 16
+lora_dropout: 0.0
+target_modules: ["to_q", "to_k", "to_v"]
+
+# T-LoRA (rank masking) settings
+trainer_type: "lora"          # "lora" (Vanilla T-LoRA) | "ortho_lora" (T-LoRA w/ orth init)
+min_rank: 8                   # r_min
+alpha_rank_scale: 1.0         # alpha in ((T - t)/T)^alpha
+sig_type: "principal"         # for ortho_lora: "principal" | "last" | "middle"
+enable_rank_masking: true
+
+use_masks: false
+mask_suffix: "_mask.png"
+mask_weight: 1.5

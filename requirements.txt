@@ -1,0 +1,27 @@
+# core
+accelerate>=0.33.0
+diffusers>=0.30.0
+transformers>=4.44.0
+peft>=0.12.0
+safetensors>=0.4.4
+huggingface_hub>=0.24.6
+hf_transfer>=0.1.6
+
+# torch stack (may need to be installed separately for your CUDA)
+torch>=2.3.0
+torchvision>=0.18.0
+
+# utils
+numpy>=1.26.0
+Pillow>=10.4.0
+opencv-python>=4.10.0.84
+tqdm>=4.66.0
+PyYAML>=6.0.2
+
+# logging (optional)
+wandb>=0.17.5
+
+# performance (optional; install only if it works on your system)
+xformers>=0.0.27.post2; platform_system=="Linux"
+
+sentencepiece>=0.2.0
