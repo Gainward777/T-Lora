@@ -13,6 +13,22 @@ from tlora_flux import (
     load_tlora_weights,
 )
 
+# ---------------------------
+# PyTorch SDP compat (diffusers may pass enable_gqa on newer torch)
+# ---------------------------
+try:
+    if not getattr(torch.nn.functional, "_tlora_sdp_enable_gqa_patched", False):
+        _orig_sdp = torch.nn.functional.scaled_dot_product_attention
+
+        def _sdp_compat(*args, **kwargs):
+            kwargs.pop("enable_gqa", None)
+            return _orig_sdp(*args, **kwargs)
+
+        torch.nn.functional.scaled_dot_product_attention = _sdp_compat  # type: ignore[assignment]
+        torch.nn.functional._tlora_sdp_enable_gqa_patched = True  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 
     
 NEUTRAL_TRIGGER_PROMPTS = [
@@ -58,6 +74,12 @@ def parse_args():
 
     ap.add_argument("--sequential_offload", action="store_true",
                     help="even lower VRAM (slower) than model_cpu_offload")
+
+    # Custom prompts
+    ap.add_argument("--prompts_file", type=str, default=None,
+                    help="Path to a text file with one prompt per line")
+    ap.add_argument("--prompts", type=str, default=None,
+                    help="Inline prompts separated by '##' (e.g. \"p1##p2##p3\")")
     return ap.parse_args()
 
 
@@ -126,6 +148,11 @@ def main():
         pipe.enable_model_cpu_offload()
 
     prompts = NEUTRAL_TRIGGER_PROMPTS
+    if args.prompts_file:
+        with open(args.prompts_file, "r", encoding="utf-8") as f:
+            prompts = [ln.strip() for ln in f.read().splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    elif args.prompts:
+        prompts = [p.strip() for p in args.prompts.split("##") if p.strip()]
 
     os.makedirs(args.outdir, exist_ok=True)
     gen_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
