@@ -11,9 +11,15 @@ seed: 0
 
 train_batch_size: 1
 gradient_accumulation_steps: 4
-learning_rate: 5.0e-5
-max_train_steps: 300
+learning_rate: 1.0e-4
+max_train_steps: 500
 checkpointing_steps: 100
+
+# Optimizer (Appendix B defaults from the paper; SDXL recipe)
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_weight_decay: 1.0e-4
+adam_epsilon: 1.0e-8
 
 lora_rank: 16
 lora_alpha: 16
