@@ -16,6 +16,28 @@ from tqdm import tqdm
 
 from diffusers import FluxPipeline
 
+# ---------------------------
+# PyTorch SDP compat (diffusers may pass enable_gqa on newer torch)
+# ---------------------------
+#
+# Some diffusers versions call torch.nn.functional.scaled_dot_product_attention(..., enable_gqa=...).
+# On some torch builds this kwarg doesn't exist and crashes at runtime.
+try:
+    if not getattr(torch.nn.functional, "_tlora_sdp_enable_gqa_patched", False):
+        _orig_sdp = torch.nn.functional.scaled_dot_product_attention
+
+        def _sdp_compat(*args, **kwargs):
+            # Ignore 'enable_gqa' if the current torch build doesn't support it.
+            # Safe even if torch supports it: we just fall back to default behavior.
+            kwargs.pop("enable_gqa", None)
+            return _orig_sdp(*args, **kwargs)
+
+        torch.nn.functional.scaled_dot_product_attention = _sdp_compat  # type: ignore[assignment]
+        torch.nn.functional._tlora_sdp_enable_gqa_patched = True  # type: ignore[attr-defined]
+except Exception:
+    # Best-effort only; if patching fails, training will surface the underlying error.
+    pass
+
 from tlora_flux import (
     TLoRAConfig,
     inject_tlora_into_transformer,
@@ -135,7 +157,12 @@ def discover_linear_targets(model: nn.Module, requested: List[str]) -> List[str]
 
 @torch.no_grad()
 def precompute_prompt_cache_cpu_then_to_gpu(
-    pipe: FluxPipeline, captions: List[str], gpu_device: torch.device, dtype: torch.dtype
+    pipe: FluxPipeline,
+    captions: List[str],
+    gpu_device: torch.device,
+    dtype: torch.dtype,
+    *,
+    max_sequence_length: int = 77,
 ) -> Dict[str, tuple]:
     """
     FLUX in diffusers 0.36.0 expects txt_ids not None.
@@ -144,7 +171,10 @@ def precompute_prompt_cache_cpu_then_to_gpu(
     cache: Dict[str, tuple] = {}
     for cap in sorted(set(captions)):
         pe_cpu, ppe_cpu, txt_ids_cpu = pipe.encode_prompt(
-            [cap], device=torch.device("cpu"), num_images_per_prompt=1
+            [cap],
+            device=torch.device("cpu"),
+            num_images_per_prompt=1,
+            max_sequence_length=int(max_sequence_length),
         )
         cache[cap] = (
             pe_cpu.to(gpu_device, dtype=dtype, non_blocking=True),
@@ -313,7 +343,13 @@ def main():
 
     # Cache prompt embeds once (huge speedup for tiny dataset)
     all_caps = [ds[i]["caption"] for i in range(len(ds))]
-    prompt_cache = precompute_prompt_cache_cpu_then_to_gpu(pipe, all_caps, gpu_device=device, dtype=dtype)
+    prompt_cache = precompute_prompt_cache_cpu_then_to_gpu(
+        pipe,
+        all_caps,
+        gpu_device=device,
+        dtype=dtype,
+        max_sequence_length=int(cfg.get("max_sequence_length", 77)),
+    )
 
     params = tlora_parameters(transformer)
     if not params:

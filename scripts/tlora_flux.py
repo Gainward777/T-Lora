@@ -1,5 +1,6 @@
 import inspect
 import math
+import weakref
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -118,13 +119,17 @@ class TLoRALinear(nn.Module):
         self.base.requires_grad_(False)
 
         # Populated by injector
-        self._tlora_owner: Optional[nn.Module] = None
+        # IMPORTANT: don't store owner as nn.Module attribute; otherwise PyTorch registers it as a submodule
+        # and creates a cyclic module graph (transformer -> tlora -> transformer), causing RecursionError in .train().
+        self.__dict__["_tlora_owner_ref"] = None  # type: ignore[assignment]
 
     def set_owner(self, owner: nn.Module):
-        self._tlora_owner = owner
+        # Store a weakref in __dict__ to bypass nn.Module.__setattr__ registration.
+        self.__dict__["_tlora_owner_ref"] = weakref.ref(owner)
 
     def _get_sigma_mask(self, device: torch.device, dtype: torch.dtype) -> Optional[torch.Tensor]:
-        owner = self._tlora_owner
+        owner_ref = self.__dict__.get("_tlora_owner_ref")
+        owner = owner_ref() if callable(owner_ref) else None
         if owner is None:
             return None
         m = getattr(owner, "_tlora_sigma_mask", None)
@@ -139,7 +144,8 @@ class TLoRALinear(nn.Module):
         return m
 
     def _get_global_scale(self) -> float:
-        owner = self._tlora_owner
+        owner_ref = self.__dict__.get("_tlora_owner_ref")
+        owner = owner_ref() if callable(owner_ref) else None
         if owner is None:
             return 1.0
         try:
@@ -189,7 +195,8 @@ class OrthoTLoRALinear(nn.Module):
         self.p_layer = nn.Linear(rank, out_features, bias=False)  # out x rank
         self.lambda_layer = nn.Parameter(torch.ones(1, rank))
 
-        self._tlora_owner: Optional[nn.Module] = None
+        # Same cycle-avoidance as in TLoRALinear
+        self.__dict__["_tlora_owner_ref"] = None  # type: ignore[assignment]
 
         # Freeze base weights
         self.base.requires_grad_(False)
@@ -234,10 +241,11 @@ class OrthoTLoRALinear(nn.Module):
         self.register_buffer("base_lambda", self.lambda_layer.detach().clone())
 
     def set_owner(self, owner: nn.Module):
-        self._tlora_owner = owner
+        self.__dict__["_tlora_owner_ref"] = weakref.ref(owner)
 
     def _get_sigma_mask(self, device: torch.device, dtype: torch.dtype) -> Optional[torch.Tensor]:
-        owner = self._tlora_owner
+        owner_ref = self.__dict__.get("_tlora_owner_ref")
+        owner = owner_ref() if callable(owner_ref) else None
         if owner is None:
             return None
         m = getattr(owner, "_tlora_sigma_mask", None)
@@ -249,7 +257,8 @@ class OrthoTLoRALinear(nn.Module):
         return m
 
     def _get_global_scale(self) -> float:
-        owner = self._tlora_owner
+        owner_ref = self.__dict__.get("_tlora_owner_ref")
+        owner = owner_ref() if callable(owner_ref) else None
         if owner is None:
             return 1.0
         try:
